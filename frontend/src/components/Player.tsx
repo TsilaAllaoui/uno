@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import io, { Socket } from "socket.io-client";
 import { UnoCard, UnoCardColor, UnoCardValue } from "../interfaces/ICard";
 import { IPlayer } from "../interfaces/IPlayer";
@@ -10,10 +10,10 @@ const Player = () => {
     const [cards, setCards] = useState<UnoCard[]>([]);
     const [lastCardInGrave, setLastCardInGrave] = useState<UnoCard>();
     const [socket, setSocket] = useState<Socket>();
-    const [pass, setPass] = useState(false);
     const { id } = useParams();
     const navigate = useNavigate();
-    const [skip, setSkip] = useState(false);
+    const location = useLocation();
+    const [hasardButton, setHasardButton] = useState("");
 
     useEffect(() => {
         // Creating socket connection
@@ -45,10 +45,20 @@ const Player = () => {
 
     // Show pass button if there is no valid move
     useEffect(() => {
-        const validCards: UnoCard[] = cards.filter((card) =>
-            isCardValidForTurn(card),
-        );
-        setPass(validCards.length == 0);
+        if (lastCardInGrave?.value == UnoCardValue.Reverse) {
+            setHasardButton("Skip");
+        } else if (lastCardInGrave?.value == UnoCardValue.Skip) {
+            setHasardButton("Skip");
+        } else if (lastCardInGrave?.value == UnoCardValue.DrawTwo) {
+            setHasardButton("Draw");
+        } else if (lastCardInGrave?.value == UnoCardValue.DrawFour) {
+            setHasardButton("Draw");
+        } else {
+            const validCards: UnoCard[] = cards.filter((card) =>
+                isCardValidForTurn(card),
+            );
+            setHasardButton(validCards.length == 0 ? "Pass" : "");
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cards, lastCardInGrave]);
 
@@ -90,8 +100,8 @@ const Player = () => {
 
     // Finish turn
     const sendTurn = (
-        e: React.MouseEvent<HTMLDivElement>,
-        chosenCard: UnoCard,
+        e: React.MouseEvent<HTMLDivElement | HTMLButtonElement>,
+        chosenCard?: UnoCard,
     ) => {
         if (
             e.currentTarget.className == "invalid" ||
@@ -100,36 +110,46 @@ const Player = () => {
             return;
         }
 
-        socket!.emit("player-choice-done", {
-            player: player,
-            chosenCards: [...getValidCardsGroup(chosenCard), chosenCard],
-        });
+        if (lastCardInGrave?.value == UnoCardValue.Reverse) {
+            socket!.emit("reverse-order");
+        } else if (lastCardInGrave?.value == UnoCardValue.Skip) {
+            socket!.emit("skip-turn", player!.id);
+        } else if (lastCardInGrave?.value == UnoCardValue.DrawTwo) {
+            socket!.emit("draw-two");
+        } else if (lastCardInGrave?.value == UnoCardValue.DrawFour) {
+            socket!.emit("draw-four");
+        } else {
+            socket!.emit("player-choice-done", {
+                player: player,
+                chosenCards: chosenCard
+                    ? [...getValidCardsGroup(chosenCard), chosenCard]
+                    : [],
+            });
+        }
     };
 
-    // Pass turn
-    const passTurn = () => {
-        socket!.emit("player-choice-done", {
-            player: player,
-            chosenCards: [],
-            skip: false,
-        });
-        setPass(false);
-    };
-
-    // Skip a turn
-    const skipTurn = () => {
-        socket!.emit("player-choice-done", {
-            player: player,
-            chosenCards: [],
-            skip,
-        });
-        setSkip(false);
-    };
-
-    // Draw some cards
-    const drawCards = () => {
-        socket!.emit("draw-hasard-from-grave");
-    };
+    // // Pass turn
+    // const passTurn = () => {
+    //     socket!.emit("player-choice-done", {
+    //         player: player,
+    //         chosenCards: [],
+    //         skip: false,
+    //     });
+    //     setPass(false);
+    // };
+    // // Skip a turn
+    // const skipTurn = () => {
+    //     socket!.emit("player-choice-done", {
+    //         player: player,
+    //         chosenCards: [],
+    //         skip,
+    //     });
+    //     setSkip(false);
+    // };
+    // // Draw some cards
+    // const drawCards = () => {
+    //     socket!.emit("draw-hasard-from-grave");
+    // };
 
     return (
         <>
@@ -158,19 +178,16 @@ const Player = () => {
                     </div>
                     <div className="last-card-in-grave">
                         <p>{lastCardInGrave?.color}</p>
+
                         <p>{lastCardInGrave?.value}</p>
                     </div>
                 </>
             )}
-            {pass && player ? <button onClick={passTurn}>Pass</button> : null}
-            {skip && player && lastCardInGrave?.value == UnoCardValue.Skip ? (
-                <button onClick={skipTurn}>Skip</button>
-            ) : null}
-            {player &&
-            (lastCardInGrave?.value == UnoCardValue.DrawTwo ||
-                lastCardInGrave?.value == UnoCardValue.DrawFour) ? (
-                <button onClick={drawCards}>Draw</button>
-            ) : null}
+            {hasardButton == "" ? null : (
+                <button onClick={(e) => sendTurn(e, undefined)}>
+                    {hasardButton}
+                </button>
+            )}
         </>
     );
 };

@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import express from "express";
 import http from "http";
 import { Server, Socket } from "socket.io";
-import { UnoCard, UnoCardValue } from "./interfaces/Card";
+import { UnoCard, UnoCardColor, UnoCardValue } from "./interfaces/Card";
 import { IPlayer } from "./interfaces/IPlayer";
 import { generateUnoCards, getRandomCards } from "./utils";
 
@@ -30,6 +30,38 @@ let idOfCurrentChoosing = "";
 let currId = -1;
 const ids: string[] = [];
 
+const updatePlayersStates = (lastPlayer: IPlayer) => {
+    // Setting player states
+    players.forEach((p) => {
+        if (p.id == lastPlayer.id) {
+            p.state = "waiting";
+        } else {
+            p.state = "choosing";
+        }
+    });
+
+    io.emit("players-list-updated", players);
+    if (currId == players.length - 1) {
+        currId = 0;
+    } else {
+        currId = 0;
+    }
+};
+
+/******** DEBUG PURPOSE********/
+
+const fixedRandomCard: UnoCard = {
+    color: UnoCardColor.Green,
+    value: UnoCardValue.Skip,
+};
+
+const firstPlayerCards: UnoCard[] = [
+    fixedRandomCard,
+    ...getRandomCards(cards, 6),
+];
+
+/******** DEBUG PURPOSE********/
+
 // Set events listening/emitting
 io.on("connection", (socket: Socket) => {
     // Adding new player
@@ -46,7 +78,12 @@ io.on("connection", (socket: Socket) => {
                 return;
             }
 
-            player.cards = getRandomCards(cards, 7);
+            if (process.env.MODE == "1" && players.length == 0) {
+                player.cards = firstPlayerCards;
+            } else {
+                player.cards = getRandomCards(cards, 7);
+            }
+
             player.id = socket.id;
             players.push(player);
 
@@ -101,20 +138,36 @@ io.on("connection", (socket: Socket) => {
         io.emit("players-list-updated", players);
 
         // Get first card in grave
-        let randomCard: UnoCard;
-        let randomIndex = -1;
-        while (true) {
-            const randomIndex = Math.floor(Math.random() * (cards.length - 1));
-            randomCard = cards[randomIndex];
-            if (
-                !Object.values(UnoCardValue).includes(randomCard.value as any)
-            ) {
-                break;
+
+        if (process.env.MODE == "1") {
+            grave.push(fixedRandomCard);
+            io.emit("last-card-update", fixedRandomCard);
+            const foundIndex = cards.findIndex(
+                (card) =>
+                    card.color == fixedRandomCard.color &&
+                    card.value == fixedRandomCard.value,
+            );
+            cards = cards.filter((card, index) => index != foundIndex);
+        } else {
+            let randomCard: UnoCard;
+            let randomIndex = -1;
+            while (true) {
+                const randomIndex = Math.floor(
+                    Math.random() * (cards.length - 1),
+                );
+                randomCard = cards[randomIndex];
+                if (
+                    !Object.values(UnoCardValue).includes(
+                        randomCard.value as any,
+                    )
+                ) {
+                    break;
+                }
             }
+            grave.push(randomCard);
+            io.emit("last-card-update", randomCard);
+            cards = cards.filter((card, index) => index != randomIndex);
         }
-        grave.push(randomCard);
-        io.emit("last-card-update", randomCard);
-        cards = cards.filter((card, index) => index != randomIndex);
     });
 
     // When a player finish a turn
@@ -123,13 +176,10 @@ io.on("connection", (socket: Socket) => {
         ({
             player,
             chosenCards,
-            skip,
         }: {
             player: IPlayer;
             chosenCards: UnoCard[];
-            skip: boolean;
         }) => {
-            console.log(chosenCards);
             if (chosenCards.length > 0) {
                 grave.push(chosenCards.at(0)!);
 
@@ -157,7 +207,7 @@ io.on("connection", (socket: Socket) => {
                 }
                 io.emit("last-card-update", grave[grave.length - 1]);
             } else {
-                if (!skip) {
+                if (grave[grave.length - 1].value != UnoCardValue.Skip) {
                     const result = players.findIndex((p) => p.id == player.id);
                     const foundPlayer = players[result];
                     const randomCard = getRandomCards(cards, 1);
@@ -169,23 +219,17 @@ io.on("connection", (socket: Socket) => {
                 }
             }
 
-            // Setting player states
-            players.forEach((p) => {
-                if (p.id == player.id) {
-                    p.state = "waiting";
-                } else {
-                    p.state = "choosing";
-                }
-            });
-
-            io.emit("players-list-updated", players);
-            if (currId == players.length - 1) {
-                currId = 0;
-            } else {
-                currId = 0;
-            }
+            updatePlayersStates(player);
         },
     );
+
+    // Player skip turn
+    socket.on("skip-turn", (id: string) => {
+        const result = players.find((p) => p.id == id);
+        result!.cards = [...result!.cards, ...getRandomCards(cards, 1)];
+        updatePlayersStates(result!);
+        io.to(socket.id).emit("updated-cards-of-id", result!.cards);
+    });
 
     // Get hasard from grave
     socket.on("draw-hasard-from-grave", () => {
