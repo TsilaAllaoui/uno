@@ -1,0 +1,45 @@
+.cards {
+    display: flex;
+    gap: 1rem;
+
+    .valid,
+    .invalid {
+        border: solid 1px grey;
+        height: 8rem;
+        width: 6rem;
+        border-radius: 5px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+
+        p {
+            text-align: center;
+        }
+    }
+
+    .valid {
+        background-color: rgb(81, 213, 9);
+        cursor: pointer;
+    }
+
+    .invalid {
+        background-color: rgb(239, 67, 67);
+        cursor: not-allowed;
+    }
+}
+
+.last-card-in-grave {
+    background-color: rgba(128, 128, 128, 0.244);
+    border: solid 1px grey;
+    height: 8rem;
+    width: 6rem;
+    border-radius: 5px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    margin: 1rem 0;
+
+    p {
+        text-align: center;
+    }
+}
