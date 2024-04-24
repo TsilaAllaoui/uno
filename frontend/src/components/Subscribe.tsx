@@ -15,7 +15,7 @@ const Subscribe = () => {
             setPlayer({
                 name: formData.get("name")!.toString(),
                 state: "waiting",
-                id: Math.random().toString(16).slice(2),
+                id: "",
                 cards: [],
                 index: -1,
             });

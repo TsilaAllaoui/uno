@@ -7,7 +7,6 @@ const Home = () => {
     const [socket, setSocket] = useState<Socket>();
 
     const updatePlayers = (playerList: IPlayer[]) => {
-        console.log("Here");
         setPlayers(playerList);
     };
 

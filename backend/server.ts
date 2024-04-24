@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import express from "express";
 import http from "http";
 import { Server, Socket } from "socket.io";
-import { UnoCard } from "./interfaces/Card";
+import { UnoCard, UnoCardValue } from "./interfaces/Card";
 import { IPlayer } from "./interfaces/IPlayer";
 import { generateUnoCards, getRandomCards } from "./utils";
 
@@ -27,17 +27,12 @@ let cards: UnoCard[] = generateUnoCards();
 
 let idOfCurrentChoosing = "";
 
-// Get first card in grave
-const randomIndex = Math.floor(Math.random() * (cards.length - 1));
-grave.push(cards[randomIndex]);
-io.emit("last-card-update", cards[randomIndex]);
-cards = cards.filter((card, index) => index != randomIndex);
-
 let currId = -1;
 const ids: string[] = [];
 
 // Set events listening/emitting
 io.on("connection", (socket: Socket) => {
+    // Adding new player
     socket.on(
         "add-new-player",
         (player: IPlayer, redirect: (id: string) => void) => {
@@ -51,16 +46,17 @@ io.on("connection", (socket: Socket) => {
                 return;
             }
 
-            player.cards = getRandomCards(cards);
+            player.cards = getRandomCards(cards, 7);
+            player.id = socket.id;
             players.push(player);
 
             console.log("Player " + player.name + " created");
             io.emit("players-list-updated", players);
-            io.emit("test");
             redirect(player.id);
         },
     );
 
+    // Getting cards of a player
     socket.on(
         "get-cards-of-id",
         (id: string, setCards: (cards: UnoCard[]) => void) => {
@@ -73,10 +69,10 @@ io.on("connection", (socket: Socket) => {
         },
     );
 
+    // Getting a player by Id
     socket.on(
         "get-player-by-id",
         (id: string, updatePlayer: (p: IPlayer | undefined) => void) => {
-            console.log("Getting player with id: " + id);
             const result = players.findIndex((p) => p.id == id);
             if (result >= 0) {
                 updatePlayer(players[result]);
@@ -86,6 +82,7 @@ io.on("connection", (socket: Socket) => {
         },
     );
 
+    // Getting player list
     socket.on(
         "get-player-list",
         (updatePlayers: (playerList: IPlayer[]) => void) => {
@@ -93,16 +90,155 @@ io.on("connection", (socket: Socket) => {
         },
     );
 
+    // Event for game start
     socket.on("game-started", () => {
         currId = 0;
         players.forEach((player) => {
-            if (player.id == players[currId].id) {
-                player.state = "choosing";
+            player.state =
+                player.id == players[currId].id ? "choosing" : "waiting";
+        });
+
+        io.emit("players-list-updated", players);
+
+        // Get first card in grave
+        let randomCard: UnoCard;
+        let randomIndex = -1;
+        while (true) {
+            const randomIndex = Math.floor(Math.random() * (cards.length - 1));
+            randomCard = cards[randomIndex];
+            if (
+                !Object.values(UnoCardValue).includes(randomCard.value as any)
+            ) {
+                break;
+            }
+        }
+        grave.push(randomCard);
+        io.emit("last-card-update", randomCard);
+        cards = cards.filter((card, index) => index != randomIndex);
+    });
+
+    // When a player finish a turn
+    socket.on(
+        "player-choice-done",
+        ({
+            player,
+            chosenCards,
+            skip,
+        }: {
+            player: IPlayer;
+            chosenCards: UnoCard[];
+            skip: boolean;
+        }) => {
+            console.log(chosenCards);
+            if (chosenCards.length > 0) {
+                grave.push(chosenCards.at(0)!);
+
+                const result = players.findIndex((p) => p.id == player.id);
+                let remainingCards: UnoCard[] = [];
+                if (result >= 0) {
+                    const player = players[result];
+
+                    remainingCards = player.cards.filter(
+                        (card) =>
+                            !chosenCards.some(
+                                (chosenCard) =>
+                                    chosenCard.color === card.color &&
+                                    chosenCard.value === card.value,
+                            ),
+                    );
+
+                    console.log(remainingCards);
+
+                    player.cards = remainingCards;
+                    io.to(socket.id).emit(
+                        "updated-cards-of-id",
+                        remainingCards,
+                    );
+                }
+                io.emit("last-card-update", grave[grave.length - 1]);
             } else {
-                player.state = "waiting";
+                if (!skip) {
+                    const result = players.findIndex((p) => p.id == player.id);
+                    const foundPlayer = players[result];
+                    const randomCard = getRandomCards(cards, 1);
+                    foundPlayer.cards = [...foundPlayer.cards, randomCard[0]];
+                    io.to(socket.id).emit(
+                        "updated-cards-of-id",
+                        foundPlayer.cards,
+                    );
+                }
+            }
+
+            // Setting player states
+            players.forEach((p) => {
+                if (p.id == player.id) {
+                    p.state = "waiting";
+                } else {
+                    p.state = "choosing";
+                }
+            });
+
+            io.emit("players-list-updated", players);
+            if (currId == players.length - 1) {
+                currId = 0;
+            } else {
+                currId = 0;
+            }
+        },
+    );
+
+    // Get hasard from grave
+    socket.on("draw-hasard-from-grave", () => {
+        const id = socket.id;
+        const hasardCards: UnoCard[] = [];
+
+        if (grave.length == 0) {
+            throw "Grave empty exception!";
+        }
+
+        const hasardType = grave[grave.length - 1].value;
+
+        for (let i = grave.length - 1; i >= 0; i--) {
+            if (grave[i].value == hasardType) {
+                for (let j = i; j > grave.length; i--) {
+                    if (grave[j].value == hasardType) {
+                        hasardCards.push(grave[j]);
+                    } else {
+                        i = -1;
+                        break;
+                    }
+                }
+            }
+        }
+
+        const result = players.find((p) => p.id == socket.id);
+        if (!result) {
+            throw "Player with id " + socket.id + " not found!";
+        }
+        result!.cards = [
+            ...result!.cards,
+            ...getRandomCards(
+                cards,
+                hasardCards.length *
+                    (hasardType == UnoCardValue.DrawTwo ? 2 : 4),
+            ),
+        ];
+
+        // Setting player states
+        players.forEach((p) => {
+            if (p.id == socket.id) {
+                p.state = "waiting";
+            } else {
+                p.state = "choosing";
             }
         });
+
         io.emit("players-list-updated", players);
+        if (currId == players.length - 1) {
+            currId = 0;
+        } else {
+            currId = 0;
+        }
     });
 });
 
