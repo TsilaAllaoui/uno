@@ -4,7 +4,7 @@ import { io, Socket } from "socket.io-client";
 import { IPlayer } from "../interfaces/IPlayer";
 
 const Subscribe = () => {
-    const [player, setPlayer] = useState<IPlayer>();
+    const [player, setPlayer] = useState("");
     const navigate = useNavigate();
     const [socket, setSocket] = useState<Socket>();
 
@@ -12,13 +12,7 @@ const Subscribe = () => {
         e.preventDefault();
         const formData = new FormData(e.currentTarget);
         if (formData.get("name")) {
-            setPlayer({
-                name: formData.get("name")!.toString(),
-                state: "waiting",
-                id: "",
-                cards: [],
-                index: -1,
-            });
+            setPlayer(formData.get("name")!.toString());
         }
     };
 
@@ -39,7 +33,7 @@ const Subscribe = () => {
     }, []);
 
     useEffect(() => {
-        if (player) {
+        if (player != "") {
             socket!.emit("add-new-player", player, redirect);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
